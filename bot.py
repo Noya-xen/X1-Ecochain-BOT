@@ -20,9 +20,10 @@ wib = pytz.timezone('Asia/Jakarta')
 
 class X1:
     def __init__(self) -> None:
-        self.BASE_API = "https://tapi.kod.af"
+        self.BASE_API = "https://testnet-api.x1.one"
         self.RPC_URL = "https://maculatus-rpc.x1eco.com/"
         self.EXPLORER = "https://maculatus-scan.x1eco.com/tx/"
+        self.REF_CODE = "W-p0XycS" # U can change it with yours.
         self.HEADERS = {}
         self.proxies = []
         self.proxy_index = 0
@@ -144,16 +145,19 @@ class X1:
         except Exception as e:
             return None
     
-    def generate_signature(self, account: str):
+    def generate_payload(self, account: str, address: str, message: str):
         try:
-            message = f"X1 Testnet Auth"
             encoded_message = encode_defunct(text=message)
             signed_message = Account.sign_message(encoded_message, private_key=account)
             signature = to_hex(signed_message.signature)
 
-            return signature
+            return {
+                "signature": signature,
+                "address": address,
+                "ref_code": self.REF_CODE
+            }
         except Exception as e:
-            raise Exception(f"Generate Siganture Failed: {str(e)}")
+            raise Exception(f"Generate Sign Payload Failed: {str(e)}")
         
     def mask_account(self, account):
         try:
@@ -383,9 +387,36 @@ class X1:
         
         return None
     
-    async def auth_signin(self, address: str, signature: str, proxy_url=None, retries=5):
+    async def auth_message(self, address: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/signin"
-        data = json.dumps({"signature": signature})
+        params = {"address": address}
+        headers = {
+            **self.HEADERS[address],
+            "Content-Type": "application/json"
+        }
+        for attempt in range(retries):
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+            try:
+                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
+                    async with session.get(url=url, headers=headers, params=params, proxy=proxy, proxy_auth=proxy_auth) as response:
+                        response.raise_for_status()
+                        return await response.json()
+            except (Exception, ClientResponseError) as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(5)
+                    continue
+                self.log(
+                    f"{Fore.CYAN+Style.BRIGHT}Status  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} Fetch Auth Message Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+
+        return None
+    
+    async def auth_signin(self, account: str, address: str, message: str, proxy_url=None, retries=5):
+        url = f"{self.BASE_API}/signin"
+        data = json.dumps(self.generate_payload(account, address, message))
         headers = {
             **self.HEADERS[address],
             "Content-Length": str(len(data)),
@@ -586,19 +617,21 @@ class X1:
         if is_valid:
             proxy = self.get_next_proxy_for_account(address) if use_proxy else None
 
-            signature = self.generate_signature(account)
+            auth_msg = await self.auth_message(address, proxy)
+            if not auth_msg: return False
 
-            signin = await self.auth_signin(address, signature, proxy)
-            if signin:
-                self.access_tokens[address] = signin["token"]
+            message = auth_msg["message"]
 
-                self.log(
-                    f"{Fore.CYAN + Style.BRIGHT}Status  :{Style.RESET_ALL}"
-                    f"{Fore.GREEN + Style.BRIGHT} Login Success {Style.RESET_ALL}"
-                )
-                return True
+            signin = await self.auth_signin(account, address, message, proxy)
+            if not signin: return False
 
-            return False
+            self.access_tokens[address] = signin["token"]
+
+            self.log(
+                f"{Fore.CYAN + Style.BRIGHT}Status  :{Style.RESET_ALL}"
+                f"{Fore.GREEN + Style.BRIGHT} Login Success {Style.RESET_ALL}"
+            )
+            return True
 
     async def process_accounts(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
         logined = await self.process_auth_login(account, address, use_proxy, rotate_proxy)
