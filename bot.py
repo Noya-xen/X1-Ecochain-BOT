@@ -776,7 +776,7 @@ class X1:
                         self.log(
                             f"{Fore.CYAN + Style.BRIGHT}{separator}[{Style.RESET_ALL}"
                             f"{Fore.WHITE + Style.BRIGHT} {idx} {Style.RESET_ALL}"
-                            f"{Fore.CYAN + Style.BRIGHT}{Style.RESET_ALL}"
+                            f"{Fore.CYAN + Style.BRIGHT}-{Style.RESET_ALL}"
                             f"{Fore.WHITE + Style.BRIGHT} {self.mask_account(address)} {Style.RESET_ALL}"
                             f"{Fore.CYAN + Style.BRIGHT}]{separator}{Style.RESET_ALL}"
                         )
